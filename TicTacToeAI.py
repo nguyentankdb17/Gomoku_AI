@@ -1,5 +1,6 @@
 import time
 import numpy as np
+import random
 
 
 class Board:
@@ -236,256 +237,262 @@ class Board:
         return False
 
 
-MIN = float('-inf')
-MAX = float('inf')
+# 1 represents player, 2 represents opponent, 0 represents empty cell
+PLAYER_TERMINATE_STATE = {
+    '11111': 5000000000,
+    '011110': 200000000
+}
 
-UTILITY = {
-        '11111': 30000000,
-        '22222': -30000000,
-        '011110': 20000000,
-        '022220': -20000000,
-        '011112': 500000,
-        '211110': 500000,
-        '022221': -500000,
-        '122220': -500000,
-        '01110': 30000,
-        '02220': -30000,
-        '011010': 15000,
-        '010110': 15000,
-        '022020': -15000,
-        '020220': -15000,
-        '001112': 2000,
-        '211100': 2000,
-        '002221': -2000,
-        '122200': -2000,
-        '211010': 2000,
-        '210110': 2000,
-        '010112': 2000,
-        '011012': 2000,
-        '122020': -2000,
-        '120220': -2000,
-        '020221': -2000,
-        '022021': -2000,
-        '01100': 500,
-        '00110': 500,
-        '02200': -500,
-        '00220': -500
-    }
+PLAYER_FORK_STATE = {
+    '011112': 500000,
+    '211110': 500000,
+    '01110': 30000,
+    '011010': 15000,
+    '010110': 15000,
+}
+
+PLAYER_NORMAL_STATE = {
+    '001112': 2000,
+    '211100': 2000,
+    '211010': 2000,
+    '210110': 2000,
+    '010112': 2000,
+    '011012': 2000,
+    '01100': 500,
+    '00110': 500
+}
+
+OPPONENT_TERMINATE_STATE = {
+    '22222': -5000000000,
+    '022220': -200000000
+}
+
+OPPONENT_FORK_STATE = {
+    '022221': -500000,
+    '122220': -500000,
+    '02220': -30000,
+    '022020': -15000,
+    '020220': -15000
+}
+
+OPPONENT_NORMAL_STATE = {
+    '002221': -2000,
+    '122200': -2000,
+    '122020': -2000,
+    '120220': -2000,
+    '020221': -2000,
+    '022021': -2000,
+    '02200': -500,
+    '00220': -500
+}
+
+PLAYER_HEURISTIC = PLAYER_TERMINATE_STATE | PLAYER_FORK_STATE | PLAYER_NORMAL_STATE
+OPPONENT_HEURISTIC = OPPONENT_TERMINATE_STATE | OPPONENT_FORK_STATE | OPPONENT_NORMAL_STATE
+HEURISTIC = PLAYER_HEURISTIC | OPPONENT_HEURISTIC
 
 
+def makeLine(matrix, type_list, player):
+    for i in matrix:
+        res = ""
+        for j in i:
+            if j == ' ':
+                res += "0"
+            elif j == player:
+                res += "1"
+            else:
+                res += "2"
+        type_list.append(res)
 
-def btsConvert(board, player):
-    '''
-    convert board to col,row,and diag string arrays for easier interpreting
-    '''
+
+# Make coordinates
+def convert_state(board, player):
+    """
+    convert board to col,row,and diag string arrays
+    """
     newBoard = np.array(board)
-    cList, rList, dList = [], [], []
-    bdiag = [newBoard.diagonal(i) for i in range(newBoard.shape[1] - 5, -newBoard.shape[1] + 4, -1)]
-    fdiag = [newBoard[::-1, :].diagonal(i) for i in range(newBoard.shape[1] - 5, -newBoard.shape[1] + 4, -1)]
-    for dgd in bdiag:
-        bdiagVals = ""
-        for point in dgd:
-            if point == ' ':
-                bdiagVals += "0"
-            elif point == player:
-                bdiagVals += "1"
-            else:
-                bdiagVals += "2"
-        dList.append(bdiagVals)
-    for dgu in fdiag:
-        fdiagVals = ""
-        for point in dgu:
-            if point == ' ':
-                fdiagVals += "0"
-            elif point == player:
-                fdiagVals += "1"
-            else:
-                fdiagVals += "2"
-        dList.append(fdiagVals)
     boardT = newBoard.copy().transpose()
-    for col in boardT:
-        colVals = ""
-        for point in col:
-            if point == ' ':
-                colVals += "0"
-            elif point == player:
-                colVals += "1"
-            else:
-                colVals += "2"
-        cList.append(colVals)
-    for row in newBoard:
-        rowVals = ""
-        for point in row:
-            if point == ' ':
-                rowVals += "0"
-            elif point == player:
-                rowVals += "1"
-            else:
-                rowVals += "2"
-        rList.append(rowVals)
-    return dList + cList + rList
+    col_list, row_list, diag_list = [], [], []
+    main_diag = [newBoard.diagonal(i) for i in range(newBoard.shape[1] - 5, -newBoard.shape[1] + 4, -1)]
+    second_diag = [newBoard[::-1, :].diagonal(i) for i in range(newBoard.shape[1] - 5, -newBoard.shape[1] + 4, -1)]
+
+    makeLine(main_diag, diag_list, player)
+    makeLine(second_diag, diag_list, player)
+    makeLine(newBoard, row_list, player)
+    makeLine(boardT, col_list, player)
+
+    return diag_list + col_list + row_list
 
 
-def points(board, player):  # evaluates
-    '''
-    assigns points for moves
-    '''
+def fork_value(board, is_player_turn, player):
+    fork_val = 0
+    size = len(board)
+    possible_pos = [(i, j) for i in range(size) for j in range(size) if board[i][j] != ' ']
+    if len(possible_pos) < 5:
+        return 0
+
+    for (row, col) in possible_pos:
+        margin_left = max(0, col - 5)
+        margin_right = min(size - 1, col + 5)
+        margin_top = max(0, row - 5)
+        margin_bottom = min(size - 1, row + 5)
+
+        tmp_list = [
+            [board[row][i] for i in range(margin_left, margin_right + 1)],
+            [board[i][col] for i in range(margin_top, margin_bottom + 1)],
+            [board[row + k][col + k] for k in range(-5, 6) if 0 <= row + k < size and 0 <= col + k < size],
+            [board[row + k][col - k] for k in range(-5, 6) if 0 <= row + k < size and 0 <= col - k < size]
+        ]
+
+        lines = []
+        makeLine(tmp_list, lines, player)
+        count_player, count_opponent = 0, 0
+        for line in lines:
+            for i in range(len(line)):
+                for j in [5, 6]:
+                    if i + j <= len(line):
+                        sub_line = line[i:i + j]
+                        if sub_line in PLAYER_FORK_STATE:
+                            count_player += 1
+                        if sub_line in OPPONENT_FORK_STATE:
+                            count_opponent += 1
+        if is_player_turn:
+            fork_val += (count_player - 1) * 4000000 * 1.25 if count_player > 0 else 0
+            fork_val -= (count_opponent - 1) * 4000000 if count_opponent > 0 else 0
+        else:
+            fork_val += (count_player - 1) * 4000000 if count_player > 0 else 0
+            fork_val -= (count_opponent - 1) * 4000000 * 1.25 if count_opponent > 0 else 0
+    return fork_val
+
+
+def value(board, is_player_turn, player):
+    """
+    calculate value for each move
+    """
     val = 0
-    player1StrArr = btsConvert(board, player)
-    for i in range(len(player1StrArr)):
-        len1 = len(player1StrArr[i])
-        for j in range(len1):
-            n = j + 5
-            if n <= len1:
-                st = player1StrArr[i][j:n]
-                if st in UTILITY:
-                    val += UTILITY[st]
-        for j in range(len1):
-            n = j + 6
-            if n <= len1:
-                st = player1StrArr[i][j:n]
-                if st in UTILITY:
-                    val += UTILITY[st]
+    lines = convert_state(board, player)
+    for line in lines:
+        for i in range(len(line)):
+            for j in [5, 6]:
+                if i + j <= len(line):
+                    sub_line = line[i:i + j]
+                    if sub_line in PLAYER_HEURISTIC:
+                        val += HEURISTIC[sub_line] * 1.25 if is_player_turn else HEURISTIC[sub_line]
+                    if sub_line in OPPONENT_HEURISTIC:
+                        val += HEURISTIC[sub_line] if is_player_turn else HEURISTIC[sub_line] * 1.25
+    val += fork_value(board, is_player_turn, player)
     return val
 
 
-def getCoordsAround(board):
-    '''
-    get points around placed stones
-    '''
-    board_size = len(board)
-    outTpl = np.nonzero(board)  # return tuple of all non zero points on board
-    potentialValsCoord = {}
-    for i in range(len(outTpl[0])):
-        y = outTpl[0][i]
-        x = outTpl[1][i]
-        if y > 0:
-            potentialValsCoord[(x, y - 1)] = 1
-            if x > 0:
-                potentialValsCoord[(x - 1, y - 1)] = 1
-            if x < (board_size - 1):
-                potentialValsCoord[(x + 1, y - 1)] = 1
-        if x > 0:
-            potentialValsCoord[(x - 1, y)] = 1
-            if y < (board_size - 1):
-                potentialValsCoord[(x - 1, y + 1)] = 1
-        if y < (board_size - 1):
-            potentialValsCoord[(x, y + 1)] = 1
-            if x < (board_size - 1):
-                potentialValsCoord[(x + 1, y + 1)] = 1
-            if x > 0:
-                potentialValsCoord[(x - 1, y + 1)] = 1
-        if x < (board_size - 1):
-            potentialValsCoord[(x + 1, y)] = 1
-            if y > 0:
-                potentialValsCoord[(x + 1, y - 1)] = 1
-    finalValsX, finalValsY = [], []
-    for key in potentialValsCoord:
-        finalValsX.append(key[0])
-        finalValsY.append(key[1])
-    return finalValsX, finalValsY
+def getAround(board):
+    """
+    Get values around placed stones on the board.
+    """
+
+    consider = np.nonzero(board)
+    potentialCoords = set()
+
+    for x, y in zip(consider[0], consider[1]):
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                if dx == 0 and dy == 0:
+                    continue  # Skip the current stone itself
+                nx, ny = x + dx, y + dy
+                if 0 <= ny < len(board) and 0 <= nx < len(board):
+                    potentialCoords.add((nx, ny))
+
+    potentialRows, potentialCols = zip(*potentialCoords) if potentialCoords else ([], [])
+    return list(potentialRows), list(potentialCols)
 
 
-def minimax(board, isMaximizer, depth, alpha, beta, player):  # alpha, beta
-    '''
-    Minimax with Alpha-Beta pruning (also computer is 1st Max in this implementation)
-    alpha is best already explored option along path to root for maximizer(AI)
-    beta is best already explored option along path to root for minimizer(AI Opponent)
-    '''
-    point = points(board, player)
-    if depth == 2 or point >= 20000000 or point <= -20000000:
-        return point
-    size = len(board)
-    if isMaximizer:  # THE MAXIMIZER
-        best = MIN
-        potentialValsX, potentialValsY = getCoordsAround(board)
-        for i in range(len(potentialValsX)):
-            if board[potentialValsY[i]][potentialValsX[i]] == ' ':
-                board[potentialValsY[i]][potentialValsX[i]] = player
+# Use minimax and alpha-beta pruning algorithm
+def minimax(board, is_maximizing, depth, alpha, beta, player):
+    """
+    Minimax with Alpha-Beta pruning
+    """
+    point = value(board, is_maximizing, player)
+    if depth == 2 or point >= 200000000 or point <= -200000000:
+        return value(board, is_maximizing, player)
+    if is_maximizing:  # THE MAXIMIZER
+        best = float('-inf')
+        potentialRows, potentialCols = getAround(board)
+        for i in range(len(potentialCols)):
+            if board[potentialRows[i]][potentialCols[i]] == ' ':
+                board[potentialRows[i]][potentialCols[i]] = player
                 score = minimax(board, False, depth + 1, alpha, beta, player)
                 best = max(best, score)
-                alpha = max(alpha, best)  # best AI Opponent move
-                board[potentialValsY[i]][potentialValsX[i]] = ' '  # undoing
+                alpha = max(alpha, best)  # best opponent move
+                board[potentialRows[i]][potentialCols[i]] = ' '  # undoing
                 if beta <= alpha:
                     break
         return best
     else:  # THE MINIMIZER
-        best = MAX
-        potentialValsX, potentialValsY = getCoordsAround(board)
-        for i in range(len(potentialValsX)):
-            if board[potentialValsY[i]][potentialValsX[i]] == ' ':
+        best = float('inf')
+        potentialRows, potentialCols = getAround(board)
+        for i in range(len(potentialCols)):
+            if board[potentialRows[i]][potentialCols[i]] == ' ':
                 opponent = 'x' if player == 'o' else 'o'
-                board[potentialValsY[i]][potentialValsX[i]] = opponent
+                board[potentialRows[i]][potentialCols[i]] = opponent
                 score = minimax(board, True, depth + 1, alpha, beta, player)
                 best = min(best, score)
-                beta = min(beta, best)  # best AI Opponent move
-                board[potentialValsY[i]][potentialValsX[i]] = ' '  # undoing
+                beta = min(beta, best)  # best opponent move
+                board[potentialRows[i]][potentialCols[i]] = ' '  # undoing
                 if beta <= alpha:
                     break
         return best
 
 
+# Get a random move
 def getRandomMove(board):
-    '''
-    For choosing random move when can't decide propogated to center
-    '''
-    print('siuu')
+    """
+    Returns a random move around central position
+    If no move near central found, return a random possible move
+    """
     boardSize = len(board)
     ctr = 0
     idx = boardSize // 2
     while ctr < (idx / 2):
-        if board[idx + ctr][idx + ctr] == ' ':
-            return idx + ctr, idx + ctr
-        elif board[idx + ctr][idx - ctr] == ' ':
-            return idx + ctr, idx - ctr
-        elif board[idx + ctr][idx] == ' ':
-            return idx + ctr, idx
-        elif board[idx][idx + ctr] == ' ':
-            return idx, idx + ctr
-        elif board[idx][idx - ctr] == ' ':
-            return idx, idx - ctr
-        elif board[idx - ctr][idx] == ' ':
-            return idx - ctr, idx
-        elif board[idx - ctr][idx - ctr] == ' ':
-            return idx - ctr, idx - ctr
-        elif board[idx - ctr][idx + ctr] == ' ':
-            return idx - ctr, idx + ctr
-        ctr += 1
-    for i in range(boardSize):
-        for j in range(boardSize):
+        ctr_list = [(idx + ctr, idx + ctr), (idx + ctr, idx - ctr), (idx + ctr, idx), (idx, idx + ctr),
+                    (idx, idx - ctr), (idx - ctr, idx), (idx - ctr, idx - ctr), (idx - ctr, idx + ctr)]
+        for (i, j) in ctr_list:
             if board[i][j] == ' ':
                 return i, j
+        ctr += 1
+
+    # If no possible moves near central position choose a random possible move
+    possible_moves = [(i, j) for i in range(boardSize) for j in range(boardSize) if board[i][j] == ' ']
+    return random.choice(possible_moves)
 
 
-def get_move(board, player):
+# Get the move
+def get_move(board, size, player):
     mostPoints = float('-inf')
-    alpha, beta = MIN, MAX
+    alpha, beta = float('-inf'), float('inf')
     bestMoveRow = bestMoveCol = -1
-    boardSize = len(board)
-    potentialValsX, potentialValsY = getCoordsAround(board)
-    for i in range(len(potentialValsX)):
-        if board[potentialValsY[i]][potentialValsX[i]] == ' ':
-            board[potentialValsY[i]][potentialValsX[i]] = player
+    potentialRows, potentialCols = getAround(board)
+    for i in range(len(potentialCols)):
+        if board[potentialRows[i]][potentialCols[i]] == ' ':
+            board[potentialRows[i]][potentialCols[i]] = player
             movePoints = max(mostPoints, minimax(
                 board, False, 1, alpha, beta, player))
             alpha = max(alpha, movePoints)
-            board[potentialValsY[i]][potentialValsX[i]] = ' '
+            board[potentialRows[i]][potentialCols[i]] = ' '
             if beta <= alpha:
                 break
             if movePoints > mostPoints:
-                bestMoveRow = potentialValsY[i]
-                bestMoveCol = potentialValsX[i]
+                bestMoveRow = potentialRows[i]
+                bestMoveCol = potentialCols[i]
                 mostPoints = movePoints
-                if movePoints >= 20000000:
+                if movePoints >= 200000000:
                     break
     if bestMoveRow == -1 or bestMoveCol == -1:
         bestMoveRow, bestMoveCol = getRandomMove(board)
-    return [bestMoveRow, bestMoveCol]
+    return bestMoveRow, bestMoveCol
 
 
 def make_move(game_board, player):
-    move = get_move(game_board.board, player)
+    move = get_move(game_board.board, game_board.size, player)
     game_board.board[int(move[0])][int(move[1])] = player
+
 
 def print_board(game_board):
     result = ""
@@ -498,6 +505,7 @@ def print_board(game_board):
 
 
 def play_game():
+    print(len(HEURISTIC))
     game_board = None
     while True:
         size = int(input("Enter the board size : "))
