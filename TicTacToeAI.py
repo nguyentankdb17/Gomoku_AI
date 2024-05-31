@@ -292,6 +292,9 @@ HEURISTIC = PLAYER_HEURISTIC | OPPONENT_HEURISTIC
 
 
 def makeLine(matrix, type_list, player):
+    """
+    convert a row of matrix to the string of number
+    """
     for i in matrix:
         res = ""
         for j in i:
@@ -324,10 +327,14 @@ def convert_state(board, player):
 
 
 def fork_value(board, is_player_turn, player):
+    """
+    calculate fork value of the board
+    fork means you can create 2 or more fork_state situations at a single move
+    """
     fork_val = 0
     size = len(board)
     possible_pos = [(i, j) for i in range(size) for j in range(size) if board[i][j] != ' ']
-    if len(possible_pos) < 5:
+    if len(possible_pos) < 7:
         return 0
 
     for (row, col) in possible_pos:
@@ -486,6 +493,7 @@ def get_move(board, size, player):
                     break
     if bestMoveRow == -1 or bestMoveCol == -1:
         bestMoveRow, bestMoveCol = getRandomMove(board)
+    print("Move: ({}, {})".format(bestMoveRow, bestMoveCol))
     return bestMoveRow, bestMoveCol
 
 
@@ -505,7 +513,6 @@ def print_board(game_board):
 
 
 def play_game():
-    print(len(HEURISTIC))
     game_board = None
     while True:
         size = int(input("Enter the board size : "))
@@ -518,6 +525,15 @@ def play_game():
             continue
 
     while True:
+        print("Bot is thinking....")
+        print()
+
+        make_move(game_board, 'x')
+        print_board(game_board)
+
+        if game_board.check_status(game_board.board):
+            break
+
         moves = input("Your move: ").split()
         if len(moves) != 2:
             print("Invalid input! Please enter row and column separated by space.")
@@ -535,15 +551,6 @@ def play_game():
         else:
             print("Invalid move! Please select an empty cell.")
             continue
-
-        if game_board.check_status(game_board.board):
-            break
-
-        print("Bot is thinking....")
-        print()
-
-        make_move(game_board, 'x')
-        print_board(game_board)
 
         if game_board.check_status(game_board.board):
             break
